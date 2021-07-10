@@ -1,0 +1,740 @@
+---
+title: "Classificação de subscrições de serviço - Disciplina de Análise Preditiva Avançada do MBA em Business Analytics e Big Data - FGV-RJ"
+autor: "Hugo Muniz Albuquerque"
+data da versão 2: "09/07/2021 "
+output: html_document
+---
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Instalando bibliotecas
+```{r, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(lubridate)
+library(naniar)
+library(VIM)
+library(corrplot)
+library(psych)
+library(inspectdf)
+library(mlbench)
+library(ModelMetrics)
+library(caret)
+library(forcats)
+library(h2o)
+library(mice)
+library(pROC)
+library(pdp)
+```
+
+## Importando a base de dados
+```{r, echo = FALSE}
+marketing <- read.csv("C:/Users/Pichau/Documents/MBA/Analise Preditiva Avancada/Analise_Preditiva_Avancada-master/Trabalho Final/Marketing.csv",header=TRUE, sep=";", encoding='UTF-8')
+str(marketing)
+```
+
+### Observando as categorias das seguintes colunas
+```{r}
+varlist <- c("JOB", "MARITAL_STATUS", "EDUCATION","CONTACT", "HOUSING","LOAN", "SUBSCRIBED", "DEFAULT")
+lapply(marketing[varlist], table)
+```
+
+### Verificando se existem NA's
+```{r}
+sapply(marketing, function(x) sum(is.na(x)))
+```
+### Transformando em factor as seguintes variáveis "JOB", "MARITAL_STATUS","CONTACT","DEFAULT","HOUSING","LOAN","MONTH","DAY_OF_WEEK","POUTCOME" e "SUBSCRIBED"
+```{r}
+varlist2 <- c("JOB", "MARITAL_STATUS","CONTACT","DEFAULT","HOUSING","LOAN","MONTH","DAY_OF_WEEK","POUTCOME", "SUBSCRIBED")
+marketing[varlist2] <- lapply(marketing[varlist2], as.factor)
+```
+
+Como não existe categoria "desconhecida" (unknown) para o pagamento de contas atrasasadas e o número de observações de inadimplentes ('yes) é extremamente baixo, iremos considerar todos os 'unknown' como 'no'.
+```{r}
+marketing$DEFAULT <- gsub("unknown", "no", marketing$DEFAULT)
+```
+
+
+### Tratando os valores da variável 'HOUSING'
+
+Como o valor 'unknow' representa um NA e não podemos atribuir como sim ou não essas observações serão removidas da base, assim 990 observações serão removidas. 
+
+
+Os valores 'unknown' para LOAN foram removidos junto com as observações da variável 'HOUSING', pois os NA's estavam presentes nas mesma linhas para as duas variáveis
+```{r}
+marketing <- marketing %>% filter(HOUSING != "unknown")
+```
+
+### É preciso subistituir o _ das variáveis por . e transformar em numerico
+```{r}
+table(marketing$EMP_VAR_RATE)
+```
+### Substituindo underline por ponto em EMP_VAR_RATE
+```{r}
+marketing$EMP_VAR_RATE <- gsub("_", ".", marketing$EMP_VAR_RATE)
+marketing$EMP_VAR_RATE <- as.numeric(marketing$EMP_VAR_RATE)
+```
+
+### Substituindo underline por ponto em CONS_CONF_IDX
+```{r}
+marketing$CONS_CONF_IDX <- gsub("_", ".", marketing$CONS_CONF_IDX)
+marketing$CONS_CONF_IDX <- as.numeric(marketing$CONS_CONF_IDX)
+```
+
+### O valor 93_2 precisa ser transformado em 93.2
+```{r}
+table(marketing$CONS_PRICE_IDX)
+```
+### Mudar o nome das colunas (_ para .) e transformar em numerico
+```{r}
+marketing$CONS_PRICE_IDX <- recode(marketing$CONS_PRICE_IDX, "93_2" = "93.2")
+                                  
+marketing$CONS_PRICE_IDX <- as.numeric(marketing$CONS_PRICE_IDX)
+
+table(marketing$CONS_PRICE_IDX)
+```
+
+### Transformando EDUCATION em um factor ordenado 
+```{r}
+marketing$EDUCATION <- factor(marketing$EDUCATION, order = TRUE, 
+                                    levels = c("unknown", "illiterate", "basic_4y", "basic_6y", "basic_9y", "high_school", "professional_course", "university_degree"))
+class(marketing$EDUCATION)
+```
+# Análise Exploratória
+
+### Estatística descritivas
+```{r}
+summary(marketing)
+```
+### Plotando as variáveis categóricas em gráfico de barras
+```{r}
+ggplot(marketing, aes(x=fct_infreq(JOB), fill = SUBSCRIBED)) + geom_bar() + coord_flip() 
+```
+
+As variáveis Admin, blue-collar e technician são as 3 maiores da categoria em valores abolutos.
+
+
+A variavel admin possui mais clientes que aderiram ao serviço           .
+
+```{r}
+ggplot(marketing, aes(x=fct_infreq(MARITAL_STATUS), fill = SUBSCRIBED)) + geom_bar() + coord_flip()
+```
+
+A variável married possui mais observações que as demais em valores relativos.
+
+
+A variavel single possui mais inscritos, porém em valores absolutos married possui mais inscritos
+
+```{r}
+ggplot(marketing, aes(x=fct_infreq(EDUCATION), fill = SUBSCRIBED)) + geom_bar() + coord_flip()
+```
+
+A maior parte dos clientes da base possui university_degree e high_school
+
+```{r}
+ggplot(marketing, aes(x=fct_infreq(CONTACT), fill = SUBSCRIBED)) + geom_bar() + coord_flip()
+```
+
+A maior parte dos contatos é feito por celular
+
+```{r}
+ggplot(marketing, aes(x=fct_infreq(DEFAULT), fill = SUBSCRIBED)) + geom_bar() + coord_flip()
+```
+
+Praticamente nenhum cliente possui contas atrasadas.
+
+```{r}
+ggplot(marketing, aes(x=fct_infreq(HOUSING), fill = SUBSCRIBED)) + geom_bar() + coord_flip()
+```
+
+Existe um numero equilibrado entre quem tem e quem não tem hipoteca, e também entre quem aderiu ou não ao servico.
+
+
+```{r}
+ggplot(marketing, aes(x=fct_infreq(LOAN), fill = SUBSCRIBED)) + geom_bar() + coord_flip()
+```
+
+A maior parte não possui empréstimo pessoal.
+
+
+```{r}
+ggplot(marketing, aes(x=fct_infreq(MONTH), fill = SUBSCRIBED)) + geom_bar()
+```
+
+A maior parte dos potenciais clientes foram atingidos pelas campanhas em maio, julho e agosto.
+
+
+O mês com mais subscrição do serviço foi Maio, em valores absolutos. 
+
+
+Em valores relativos o mês de Abril foi o que teve mais subscrições do serviço.
+
+
+## Plotando as variáveis discretas
+
+Parece que as campanhas com maior duração conseguiram mais subscrições do serviço.
+
+```{r}
+ggplot(marketing, aes(x=EMP_VAR_RATE, fill = SUBSCRIBED)) + geom_bar()
+```
+
+A taxa de desemprego não parece influenciar diretamente a taxa de subscrição do servico.
+
+### Tratamento de Outliers
+
+#### AGE
+```{r}
+a1 <- ggplot(marketing, aes(x=AGE, fill = SUBSCRIBED)) + geom_density()
+a2 <- ggplot(marketing, aes(x=AGE, fill = SUBSCRIBED)) + geom_boxplot()
+grid.arrange(a1,a2)
+```
+
+A idade dos clientes se concentra entre 30 e 50 anos. Portanto, os clientes mais novos aderiram mais ao seviço que os mais velhos.
+
+
+Nota-se a presença de outliers em torno de 75 anos para cima. Porém, de acordo com o gráfico de densidade acima, pessoas com mais de 75 anos também aderiram ao serviço. Por isso não foram retirados estes outliers da base.
+
+#### DURATION
+```{r}
+p1 <- ggplot(marketing, aes(x=DURATION, fill = SUBSCRIBED)) + geom_boxplot()
+p2 <- ggplot(marketing, aes(x=DURATION, fill = SUBSCRIBED)) + geom_density()
+grid.arrange(p1, p2)
+```
+
+Apesar de existirem outliers, as campanhas com maior duração também apresentaram significativa aderência ao servico de acordo com o grá           fico de densidade, por isso não serão retirados da base.
+
+### POUTCOME (Resultado da Última Campanha)
+```{r}
+ggplot(marketing, aes(x=POUTCOME, fill = SUBSCRIBED)) + geom_bar()
+```
+
+### Obtendo os valores numéricos para cada grupo de categorias sumarizando por aderência
+
+#### Variável POUTCOME
+```{r}
+marketing %>% group_by(POUTCOME) %>% summarise(soma = sum(SUBSCRIBED=="yes")) %>% arrange(desc(soma))
+```
+```{r}
+marketing %>% group_by(POUTCOME) %>% summarise(soma = sum(SUBSCRIBED=="no")) %>% arrange(desc(soma))
+```
+
+Entre as campanhas que foram um sucesso, ocorreram 65% de subscrições.
+Entre as campanhas que foram falharam, ocorreram 14% de subscrições.
+
+#### Variável MARITAL_STATUS
+
+```{r}
+marketing %>% group_by(MARITAL_STATUS) %>% summarise(soma = sum(SUBSCRIBED=="yes")) %>% arrange(desc(soma))
+```
+```{r}
+marketing %>% group_by(MARITAL_STATUS) %>% summarise(soma = sum(SUBSCRIBED=="no")) %>% arrange(desc(soma))
+```
+
+Entre as pessoas casadas, ocorreram 16% de subscrições.
+
+#### Variável JOB
+
+```{r}
+marketing %>% group_by(JOB) %>% summarise(soma = sum(SUBSCRIBED=="yes")) %>% arrange(desc(soma))
+```
+```{r}
+marketing %>% group_by(JOB) %>% summarise(soma = sum(SUBSCRIBED=="no")) %>% arrange(desc(soma))
+```
+Entre as pessoas de cargo admin, ocorreram 13% de subscrições.
+
+```{r}
+marketing %>% group_by(EDUCATION) %>% summarise(soma = sum(SUBSCRIBED=="yes")) %>% arrange(desc(soma))
+```
+
+#### Variável EDUCATION
+
+```{r}
+marketing %>% group_by(EDUCATION) %>% summarise(soma = sum(SUBSCRIBED=="no")) %>% arrange(desc(soma))
+```
+Entre as pessoas com university_degree, ocorreram 14% de subscrições.
+
+#### Variável HOUSING
+
+```{r}
+marketing %>% group_by(HOUSING) %>% summarise(soma = sum(SUBSCRIBED=="yes")) %>% arrange(desc(soma))
+```
+```{r}
+marketing %>% group_by(HOUSING) %>% summarise(soma = sum(SUBSCRIBED=="no")) %>% arrange(desc(soma))
+```
+Entre as pessoas com HOUSING (hipoteca), ocorreram 12% de subscrições.
+
+#### Variável DEFAULT
+
+```{r}
+marketing %>% group_by(DEFAULT) %>% summarise(soma = sum(SUBSCRIBED=="yes")) %>% arrange(desc(soma))
+```
+
+
+```{r}
+marketing %>% group_by(DEFAULT) %>% summarise(soma = sum(SUBSCRIBED=="no")) %>% arrange(desc(soma))
+```
+
+Entre as pessoas sem DEFAULT (contas atrasadas), ocorreram 11% de subscrições.
+Entre as pessoas com DEFAULT (contas atrasadas), não ocorreu nenhuma subscrição.
+
+#### Variável CONTACT
+
+```{r}
+marketing %>% group_by(CONTACT) %>% summarise(soma = sum(SUBSCRIBED=="yes")) %>% arrange(desc(soma))
+```
+
+
+```{r}
+marketing %>% group_by(CONTACT) %>% summarise(soma = sum(SUBSCRIBED=="no")) %>% arrange(desc(soma))
+```
+
+Entre as pessoas que entraram em contato por celular, ocorreram 15% de subscrições.
+Entre as pessoas que entraram em contato por telefone, ocorreram 5% de subscrições.
+
+## Preparação da base de dados para modelagem
+
+### Dividindo em Base de Treino e teste
+
+```{r}
+set.seed(314)
+trainIndex <- createDataPartition(marketing$SUBSCRIBED, p = .7, list = FALSE)
+dfTrain <- marketing[ trainIndex,]
+dfTest  <- marketing[-trainIndex,]
+dim(dfTest)
+```
+### Criando base de teste com a variavel resposta no formato numerico para calcular ROC e AUC
+
+```{r}
+dfTest_num <- dfTest
+dfTest_num$SUBSCRIBED <- ifelse(dfTest$SUBSCRIBED == "yes",1,0)
+```
+
+## Modelagem de dados
+
+### Regressao Logística
+```{r, message=FALSE, warning=FALSE, cache = TRUE}
+set.seed(314)
+tc <- trainControl(method="repeatedcv", number=10, savePredictions = T, summaryFunction = twoClassSummary, classProbs = TRUE)
+model_glm1 <- caret::train(SUBSCRIBED~., data = dfTrain, method = "glm", metric="ROC", trControl= tc, control = list(maxit = 50))
+model_glm1[4]
+summary(model_glm1)
+```
+
+
+```{r, cache = TRUE}
+model_glm2 <- caret::train(SUBSCRIBED~MONTH+EDUCATION+JOB+CONTACT+DAY_OF_WEEK+DURATION+CAMPAIGN+POUTCOME+EMP_VAR_RATE+ CONS_PRICE_IDX+CONS_CONF_IDX, data = dfTrain, method = "glm", metric="ROC", trControl= tc, control = list(maxit = 50))
+model_glm2[4]
+summary(model_glm2)
+```
+
+## Predição
+```{r}
+dfProbs <- predict(model_glm2,dfTest,type="prob", SCALE=FALSE)
+```
+
+## Gráfico das probabilidades da predição
+```{r}
+pp1 <- ggplot(dfProbs, aes(x=yes)) + geom_density() 
+pp2 <- ggplot(dfProbs, aes(x=no)) + geom_density() # cutoff proximo de 0.9
+grid.arrange(pp1,pp2)
+```
+## Testando com limite de 0.85
+```{r}
+dfPref_85 <- ifelse(dfProbs[1] > 0.85, "no", "yes")
+dfPref_85 <- as.factor(dfPref_85)
+caret::confusionMatrix(dfPref_85, as.factor(dfTest$SUBSCRIBED), positive = "yes")
+```
+
+## Calculando ROC e AUC
+
+```{r}
+dfPref_num_85 <- ifelse(dfPref_85 == "yes",1,0)
+
+roc_85 <- pROC::roc(dfTest_num$SUBSCRIBED, dfPref_num_85)
+roc_85
+```
+## Curva ROC
+```{r}
+plot(roc_85)
+```
+
+## Testando com limite de 0.9
+```{r}
+dfPref_90 <- ifelse(dfProbs[1] > 0.9, "no", "yes")
+dfPref_90 <- as.factor(dfPref_90)
+caret::confusionMatrix(dfPref_90, as.factor(dfTest$SUBSCRIBED), positive = "yes")
+```
+
+## Comparação dos Cutoffs (limites de probabilidas da variável resposta)
+### Cutoff 0.85
+
+Prediction   no  yes
+
+         no  9456  235   #FN 235   VN 9456     # captura mais negativos, mas erra mais negativos
+         
+        
+         yes 1243 1124   #FP 1243   VP 1124  # captura menos positivos, mas erra menos positivos
+
+
+### cutoff 0.9
+
+Prediction  no   yes
+
+       no   9008  137   #FN 137   VN 9008     # captura menos negativos, mas erra menos negativos
+       
+       
+       yes  1691  1222  #FP 1691  VP 1222     # captura mais positivos, mas erra mais positivos
+
+Se o custo de rodar a campanha for alto, será escolhido um modelo que erra menos negativos
+
+
+Se o custo de rodar a campanha for baixo, será escolhido um modelo que acerta mais positivos
+
+```{r}
+dfPref_num_90 <- ifelse(dfPref_90== "yes",1,0)
+roc_90 <- pROC::roc(dfTest_num$SUBSCRIBED, dfPref_num_90)
+roc_90
+```
+```{r}
+plot(roc_90)
+```
+
+
+## Árvore de Decisão
+
+### Modelo TreeBag
+
+```{r, cache = TRUE}
+set.seed(314)
+tc <- trainControl(method="repeatedcv", number=10, savePredictions = T, classProbs = TRUE)
+modeltree <- train(SUBSCRIBED~., data = dfTrain, method = "treebag", trControl= tc, num_trees = 100)
+pred_tree <- predict(modeltree,dfTest)
+
+caret::confusionMatrix(data=pred_tree, dfTest$SUBSCRIBED, positive="yes")
+modeltree[4]
+```
+
+#### Configurações para otimizar o processamento
+
+```{r, message = FALSE}
+library(doParallel)
+registerDoParallel(4) 
+getDoParWorkers() 
+memory.limit (9999999999)
+```
+### Modelo C.5tree
+
+```{r,cache=TRUE}
+set.seed(314)
+mtry <- sqrt(ncol(dfTrain))
+mtry <- 3
+tunegrid <- expand.grid(mtry=3)
+
+modelc5 <- train(SUBSCRIBED~., data = dfTrain, method = "C5.0Tree", trControl= tc)
+pred_c5 <- predict(modelc5,dfTest)
+caret::confusionMatrix(data=pred_c5, dfTest$SUBSCRIBED, positive="yes")
+```
+
+### Calculando ROC e AUC
+
+```{r}
+pred_c5_num <- ifelse(pred_c5 == "yes",1,0)
+roc <- pROC::roc(dfTest_num$SUBSCRIBED, pred_c5_num)
+roc
+```
+
+### Gráfico ROC
+```{r}
+plot(roc)
+```
+
+## Modelo SVM
+
+### SVM Linear
+
+#### Controle da funcao train para o modelo SVM linear
+```{r}
+tcsvm <- trainControl(method="repeatedcv", number=5, savePredictions = T, classProbs = TRUE)
+tcsvm <- trainControl(savePredictions = T, classProbs = TRUE)
+str(dfTrain)
+```
+
+```{r,cache=TRUE}
+modelsvm <- train(SUBSCRIBED~MONTH+EDUCATION+JOB+ CONTACT+DAY_OF_WEEK+DURATION+CAMPAIGN+POUTCOME+EMP_VAR_RATE+ CONS_PRICE_IDX+CONS_CONF_IDX, data = dfTrain, method = "svmLinear", trControl= tcsvm, preProcess = c("center", "scale"))
+summary(modelsvm)
+modelsvm[4]
+predsvm <- predict(modelsvm,dfTest)
+caret::confusionMatrix(predsvm, dfTest$SUBSCRIBED, positive="yes")
+```
+
+
+### Calculando ROC e AUC
+
+```{r}
+predsvm <- ifelse(predsvm == "yes",1,0)
+roc <- pROC::roc(dfTest_num$SUBSCRIBED, predsvm)
+roc
+```
+
+### Gráfico ROC
+
+```{r}
+plot(roc)
+```
+
+
+## Redes Neurais
+
+### Inicializando h2o
+
+```{r, message=FALSE, warning = FALSE, results = "hide"}
+h2o.init()
+```
+
+### Transformando os dados processados em h2o
+```{r}
+str(marketing)
+df <- as.h2o(marketing[,-4])
+```
+
+### Dividindo em treino e teste
+```{r}
+set.seed(314)
+df_split <- h2o.splitFrame(data=df, ratios=0.7)
+
+train <- df_split[[1]]
+test <- df_split[[2]]
+
+y <- "SUBSCRIBED"
+x <- setdiff(names(train), y)
+```
+
+### Modelo deeplearning 1
+```{r, cache = TRUE}
+options(warn=-1)
+set.seed(314)
+model1 <- h2o.deeplearning(  x = x, 
+                             y = y,
+                             training_frame = train,
+                             validation_frame = test,
+                             distribution = "bernoulli",
+                             activation = "RectifierWithDropout",
+                             hidden = c(32,32,32), #baixo numero de neuronios por camada para que o modelo rode mais rapido
+                             l1 = 1e-5,
+                             epochs = 100)
+model1
+```
+
+
+### Confusion Matrix do model1
+```{r}
+set.seed(314)
+h2o.confusionMatrix(model1,test)
+```
+
+## Métricas para o model1
+
+### Acurácia (VP + VN) / (P+N)
+#### A proporção de predições corretas, sem levar em consideração o que é positivo e o que é negativo.
+
+```{r}
+acuracia1 <- (h2o.confusionMatrix(model1,test)[2,2] + h2o.confusionMatrix(model1,test)[1,1]) / (h2o.confusionMatrix(model1,test)[3,1] + h2o.confusionMatrix(model1,test)[3,2])
+acuracia1
+```
+
+### Sensibilidade (VP/VP+FN)
+#### A proporção de verdadeiros positivos: a capacidade do sistema em predizer corretamente a condição para casos que realmente a têm.
+
+```{r}
+sensibilidade1 <- h2o.confusionMatrix(model1,test)[2,2]/(h2o.confusionMatrix(model1,test)[2,2]+h2o.confusionMatrix(model1,test)[1,2])
+sensibilidade1
+```
+
+### Especificidade (VN/VN+FP)
+####  A proporção de verdadeiros negativos: a capacidade do sistema em predizer corretamente a ausência da condição para casos que realmente não a têm.
+```{r}
+especificidade1 <- h2o.confusionMatrix(model1,test)[1,1]/(h2o.confusionMatrix(model1,test)[1,1]+h2o.confusionMatrix(model1,test)[2,1])
+especificidade1
+```
+
+### Eficiência (Sensibilidade/Especificidade)/2
+#### A média aritmética da Sensibilidade e Especificidade.
+#### Geralmente a Sensibilidade e Especificidade variam em direções opostas (quando um método é muito sensível a positivos, tende a gerar muitos falso-positivos, e quando é muito sensível a negativos, tende a gerar muitos falso-negativos). Por isso, um balanceamento entre os dois pode ser interessante depedendo dos custos envolvidos.
+
+```{r}
+eficiencia1 <- (sensibilidade1+especificidade1)/2
+eficiencia1
+```
+
+# Modelo deeplearning 2
+```{r,cache=TRUE}
+set.seed(314)
+model2 <- h2o.deeplearning(  x = x, 
+                             y = y,
+                             training_frame = train,
+                             validation_frame = test,
+                             distribution = "bernoulli",
+                             activation = "RectifierWithDropout",
+                             hidden = c(100,100,100), 
+                             l1 = 1e-5,
+                             epochs = 100)
+```
+
+### Confusion Matrix do model2
+```{r}
+set.seed(314)
+h2o.confusionMatrix(model2,test)
+```
+## Métricas para o model2
+
+### Acurácia (VP + VN) / (P+N)
+#### A proporção de predições corretas, sem levar em consideração o que é positivo e o que é negativo.
+
+```{r}
+acuracia2 <- (h2o.confusionMatrix(model2,test)[2,2] + h2o.confusionMatrix(model2,test)[1,1]) / (h2o.confusionMatrix(model2,test)[3,1] + h2o.confusionMatrix(model2,test)[3,2])
+acuracia2
+```
+
+### Sensibilidade (VP/VP+FN)
+#### A proporção de verdadeiros positivos: a capacidade do sistema em predizer corretamente a condição para casos que realmente a têm.
+
+```{r}
+sensibilidade2 <- h2o.confusionMatrix(model2,test)[2,2]/(h2o.confusionMatrix(model2,test)[2,2]+h2o.confusionMatrix(model2,test)[1,2])
+sensibilidade2
+```
+
+### Especificidade (VN/VN+FP)
+####  A proporção de verdadeiros negativos: a capacidade do sistema em predizer corretamente a ausência da condição para casos que realmente não a têm.
+```{r}
+especificidade2 <- h2o.confusionMatrix(model2,test)[1,1]/(h2o.confusionMatrix(model2,test)[1,1]+h2o.confusionMatrix(model2,test)[2,1])
+especificidade2
+```
+
+### Eficiência (Sensibilidade/Especificidade)/2
+#### A média aritmética da Sensibilidade e Especificidade.
+#### Geralmente a Sensibilidade e Especificidade variam em direções opostas (quando um método é muito sensível a positivos, tende a gerar muitos falso-positivos, e quando é muito sensível a negativos, tende a gerar muitos falso-negativos). Por isso, um balanceamento entre os dois pode ser interessante depedendo dos custos envolvidos.
+```{r}
+eficiencia2 <- (sensibilidade2+especificidade2)/2
+eficiencia2
+```
+
+```{r,cache=TRUE}
+set.seed(314)
+model3 <- h2o.deeplearning(  x = x, 
+                             y = y,
+                             training_frame = train,
+                             validation_frame = test,
+                             distribution = "bernoulli",
+                             activation = "RectifierWithDropout",
+                             hidden = c(100,100,100, 100), 
+                             l1 = 1e-5,
+                             epochs = 100)
+model3
+```
+### Confusion Matrix do model3
+
+```{r}
+set.seed(314)
+h2o.confusionMatrix(model3,test)
+```
+
+## Métricas para o model3
+
+### Acurácia (VP + VN) / (P+N)
+#### A proporção de predições corretas, sem levar em consideração o que é positivo e o que é negativo.
+
+```{r}
+acuracia3 <- (h2o.confusionMatrix(model3,test)[2,2] + h2o.confusionMatrix(model3,test)[1,1]) / (h2o.confusionMatrix(model3,test)[3,1] + h2o.confusionMatrix(model3,test)[3,2])
+acuracia3
+```
+
+### Sensibilidade (VP/VP+FN)
+#### A proporção de verdadeiros positivos: a capacidade do sistema em predizer corretamente a condição para casos que realmente a têm.
+
+```{r}
+sensibilidade3 <- h2o.confusionMatrix(model3,test)[2,2]/(h2o.confusionMatrix(model3,test)[2,2]+h2o.confusionMatrix(model3,test)[1,2])
+sensibilidade3
+```
+
+### Especificidade (VN/VN+FP)
+####  A proporção de verdadeiros negativos: a capacidade do sistema em predizer corretamente a ausência da condição para casos que realmente não a têm.
+```{r}
+especificidade3 <- h2o.confusionMatrix(model3,test)[1,1]/(h2o.confusionMatrix(model3,test)[1,1]+h2o.confusionMatrix(model3,test)[2,1])
+especificidade3
+```
+
+### Eficiência (Sensibilidade/Especificidade)/2
+#### A média aritmética da Sensibilidade e Especificidade.
+#### Geralmente a Sensibilidade e Especificidade variam em direções opostas (quando um método é muito sensível a positivos, tende a gerar muitos falso-positivos, e quando é muito sensível a negativos, tende a gerar muitos falso-negativos). Por isso, um balanceamento entre os dois pode ser interessante depedendo dos custos envolvidos.
+```{r}
+eficiencia3 <- (sensibilidade3+especificidade3)/2
+eficiencia3
+```
+```{r}
+cat(cat("Acurácia do model1:", acuracia1), 
+cat("
+Acurácia do model2:", acuracia2),
+cat("
+Acurácia do model3:", acuracia3),
+
+cat("
+
+Sensibilidade do model1", sensibilidade1),
+cat("
+Sensibilidade do model2", sensibilidade2),
+cat("
+Sensibilidade do model3", sensibilidade3),
+
+cat("
+
+Especificidade do model1", especificidade1),
+cat("
+Especificidade do model2", especificidade2),
+cat("
+Especificidade do model3", especificidade3),
+
+cat("
+
+Eficiência do model1", eficiencia1),
+cat("
+Eficiência do model2", eficiencia2),
+cat("
+Eficiência do model3", eficiencia3),
+
+cat("
+
+AUC do model1", 0.9355),
+cat("
+AUC do model2", 0.9327),
+cat("
+AUC do model3", 0.9354)
+)
+```
+
+Os três modelos de deep learning apresentarem performance muito semelhantes.
+
+
+Com relação a AUC o melhor modelo entre todos foi o com deeplearning model3. 
+
+
+Porém, em relação a sensibilidade, especificidade, valor preditivo positivo e negativo, o melhor modelo foi o GLM com limite de probabilidade de 0.90, que apresentou:
+        Sensitivity : 0.88153         
+        Specificity : 0.83961         
+        Pos Pred Value : 0.41112         
+        Neg Pred Value : 0.98239
+        AUC: 0.8606
+
+
+O modelo possui os seguintes parâmetros:
+
+
+Validação cruzada com 10 repetições, máximo de iterações de 50 e métrica de otimização ROC
+
+
+O modelo possui as seguintes variáveis:
+
+
+MONTH + EDUCATION + JOB + CONTACT + DAY_OF_WEEK + DURATION + CAMPAIGN + POUTCOME + EMP_VAR_RATE + CONS_PRICE_IDX + CONS_CONF_IDX
+
+
